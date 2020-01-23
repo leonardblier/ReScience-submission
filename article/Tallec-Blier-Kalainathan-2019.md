@@ -163,6 +163,7 @@ we select the best performing element of the CMAES population.
 
 ## Additional experiments
 
+### Studying the impact of the World Model
 We wanted to test the impact of the MDN-RNN on the results. Indeed, we observed
 during training that the model was rapidly learning the easy part of the
 dynamic, but mostly failed to account for long term effects and multimodality. 
@@ -204,6 +205,27 @@ ESNs consist in untrained but properly initialized reservoir recurrent networks,
 properly trained output weights, prove sufficient to solve problems with non trivial
 temporal dependencies. In our case, the untrained MDN-RNN seems to also behave like a
 reservoir for temporal information, necessary to solve the task at hand.
+
+### Using a training pipeline mixing the different steps
+One of the limitation of the methods, stated in the original paper, is that
+the VAE and RNN are trained only at the beginning, with a random policy. Hence,
+they might not be suited for the trained policies.
+
+The original paper already introduced a solution: periodically retraining the
+VAE and the MDRNN after a certain number of training iterations on the controller.
+
+We tried this learning pipeline, on the Car Racing environment. After every 5 iterations of 
+the controller training, we made a new dataset of rollouts, generated with the new policy, 
+of the same size than the original one (1,000 rollouts). Then we retrained the VAE with an
+early stopping criteria, stopping the training if it did not improve after 3 epochs, with the previous VAE as initialisation. 
+Finally, we retrained the MDRNN with the same setting than the VAE (early stopping if no improvement after 3 epochs, previous model as initialisation).
+
+Using this learning pipeline improves the performance of the learning, both in tern of final performance and number of
+controller training steps. Still, using this pipeline is expensive in term of computation and sample efficiency, since it requires generating new rollouts between controller training steps. The sample efficiency issue could be mitigated by reusing the rollouts generated during the
+controller training steps for the training of the VAE and the MDRNN.
+
+Another limitation of this pipeline is that the MDRNN and the VAE might be able to represent states coming from a good learned policy, and be inefficient in other states. This could lead to very bad performance in extreme settings. For example in the carracing environment, the agent might almost never see the car outside of the road. Actually, this is not something we observe in practice.
+
 
 # Conclusion
 
