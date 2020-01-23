@@ -8,9 +8,11 @@ to process a queue filled with parameters to be evaluated.
 import argparse
 import sys
 from os.path import join, exists
-from os import mkdir, unlink, listdir, getpid
+from os import mkdir, unlink, listdir, getpid, kill
 from time import sleep
+import signal
 import torch
+import pickle as pkl
 
 import cma
 from models import MDRNNCell, VAE, Controller
@@ -111,15 +113,19 @@ def evaluate(param, rollouts, p_queue, r_queue):
 
 
 def init_random_models():
-    vae = VAE(3, LSIZE).to('cuda:0')
-    mdrnn = MDRNNCell(LSIZE, ASIZE, RSIZE, 5).to('cuda:0')
+    cuda = torch.cuda.is_available()
+
+    device = torch.device("cuda" if cuda else "cpu")
+
+    vae = VAE(3, LSIZE).to(device)
+    mdrnn = MDRNNCell(LSIZE, ASIZE, RSIZE, 5).to(device)
 
     for (model, dirname) in [(vae, 'vae'), (mdrnn, 'mdrnn')]:
-        print(f"reinitilizing {dirname}")
+        
         best_filename = join(args.logdir, dirname, 'best.tar')
         if exists(best_filename):
             continue
-
+        print(f"reinitilizing {dirname}")
         if not exists(join(args.logdir, dirname)):
             mkdir(join(args.logdir, dirname))
 
@@ -148,10 +154,12 @@ def main():
     r_queue = mp.Queue()
     e_queue = mp.Queue()
 
+    p_list = []
+    
     for p_index in range(num_workers):
-        mp.Process(target=slave_routine, args=(p_queue, r_queue, e_queue, p_index, args.logdir)).start()
+        p_list.append(mp.Process(target=slave_routine, args=(p_queue, r_queue, e_queue, p_index, args.logdir)).start())
 
-
+    
     ################################################################################
     #                           Launch CMA                                         #
     ################################################################################
@@ -159,26 +167,30 @@ def main():
 
     # define current best and load parameters
     cur_best = None
-    ctrl_file = join(ctrl_dir, 'best.tar')
+    best_ctrl_file = join(ctrl_dir, 'best.tar')
+    last_ctrl_file = join(ctrl_dir, 'last.tar')
+    cma_file = join(ctrl_dir, 'cma.pkl')
     mainlogger.info("Attempting to load previous best...")
     epoch = 0
-    if not args.noreload and exists(ctrl_file):
-        state = torch.load(ctrl_file, map_location={'cuda:0': 'cpu'})
+    if not args.noreload and exists(last_ctrl_file):
+        state = torch.load(last_ctrl_file, map_location={'cuda:0': 'cpu'})
         cur_best = - state['reward']
         epoch = state["epoch"] + 1
         controller.load_state_dict(state['state_dict'])
         mainlogger.info("Previous best was {}...".format(-cur_best))
         history.cut(epoch)
 
-    parameters = controller.parameters()
-    es = cma.CMAEvolutionStrategy(flatten_parameters(parameters), 0.1,
-                                  {'popsize': pop_size})
+        with open(cma_file, 'rb') as f:
+            es = pkl.load(f)
 
-    
+    else:
+        es = cma.CMAEvolutionStrategy(flatten_parameters(controller.parameters()), 0.1,
+                                      {'popsize': pop_size})
+
     log_step = 1
-    while not es.stop():
+    while not es.stop() and epoch < args.max_epoch:
         if cur_best is not None and - cur_best > args.target_return:
-            mainlogger.info("Already better than target, breaking...")
+            mainlogger.info("Already better than target, ointing...")
             break
 
 
@@ -219,6 +231,16 @@ def main():
             best, std_best = evaluate(best_params, 100, p_queue, r_queue)
 
             mainlogger.info("Current evaluation: {}".format(best))
+
+
+            torch.save(
+                {'epoch': epoch,
+                 'reward': - best,
+                 'state_dict': controller.state_dict()},
+                last_ctrl_file)
+            with open(cma_file, 'wb') as f:
+                pkl.dump(es, f)
+
             if not cur_best or cur_best > best:
                 cur_best = best
                 mainlogger.info("Saving new best with value {}+-{}...".format(-cur_best, std_best))
@@ -227,12 +249,24 @@ def main():
                     {'epoch': epoch,
                      'reward': - cur_best,
                      'state_dict': controller.state_dict()},
-                    join(ctrl_dir, 'best.tar'))
+                    best_ctrl_file)
             
 
 
         epoch += 1
         mainlogger.info("End of loop")
+
+    for p in mp.active_children():
+        kill(p.pid, signal.SIGKILL)
+
+    print("end of killings")
+
+
+    while len(mp.active_children()) == 0:#any(p.is_alive() for p in p_list if p is not None):
+        sleep(1.)
+    print("end of while loop")
+
+
     es.result_pretty()
     
 
@@ -260,6 +294,7 @@ if __name__ == '__main__':
                 help='Do not load a trained RNN but use a random one')
     parser.add_argument('--random-vae', action='store_true',
                 help='Do not load the trained RNN VAE but use a random one')
+    parser.add_argument('--max_epoch', type=int, default=1000000)
     args = parser.parse_args()
 
     if args.random_rnn and args.random_vae:

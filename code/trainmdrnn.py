@@ -12,7 +12,8 @@ from tqdm import tqdm
 from utils.misc import save_checkpoint
 from utils.misc import ASIZE, LSIZE, RSIZE, RED_SIZE, SIZE
 from utils.learning import EarlyStopping
-from torch.optim.lr_scheduler import ReduceLROnPlateau
+## WARNING : THIS SHOULD BE REPLACED WITH PYTORCH 0.5
+from utils.learning import ReduceLROnPlateau
 
 from data.loaders import RolloutSequenceDataset
 from models.vae import VAE
@@ -25,6 +26,8 @@ parser.add_argument('--noreload', action='store_true',
                     help="Do not reload if specified.")
 parser.add_argument('--include_reward', action='store_true',
                     help="Add a reward modelisation term to the loss.")
+parser.add_argument('--dataset_dir', type=str, help='rollouts location', 
+                    default='datasets/carracing')
 args = parser.parse_args()
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -56,7 +59,7 @@ mdrnn = MDRNN(LSIZE, ASIZE, RSIZE, 5)
 mdrnn.to(device)
 optimizer = torch.optim.RMSprop(mdrnn.parameters(), lr=1e-3, alpha=.9)
 scheduler = ReduceLROnPlateau(optimizer, 'min', factor=0.5, patience=5)
-earlystopping = EarlyStopping('min', patience=30)
+earlystopping = EarlyStopping('min', patience=3)
 
 
 if exists(rnn_file) and not args.noreload:
@@ -74,10 +77,10 @@ if exists(rnn_file) and not args.noreload:
 transform = transforms.Lambda(
     lambda x: np.transpose(x, (0, 3, 1, 2)) / 255)
 train_loader = DataLoader(
-    RolloutSequenceDataset('datasets/carracing', SEQ_LEN, transform, buffer_size=30),
+    RolloutSequenceDataset(args.dataset_dir, SEQ_LEN, transform, buffer_size=30),
     batch_size=BSIZE, num_workers=8, shuffle=True, drop_last=True)
 test_loader = DataLoader(
-    RolloutSequenceDataset('datasets/carracing', SEQ_LEN, transform, train=False, buffer_size=10),
+    RolloutSequenceDataset(args.dataset_dir, SEQ_LEN, transform, train=False, buffer_size=10),
     batch_size=BSIZE, num_workers=8, drop_last=True)
 
 def to_latent(obs, next_obs):
@@ -200,6 +203,7 @@ for e in range(epochs):
     cur_best = None
     train(e)
     test_loss = test(e)
+    assert np.isfinite(test_loss)
     scheduler.step(test_loss)
     earlystopping.step(test_loss)
 

@@ -2,6 +2,7 @@
 import argparse
 from os.path import join, exists
 from os import mkdir
+import numpy as np
 
 import torch
 import torch.utils.data
@@ -13,8 +14,9 @@ from models.vae import VAE
 
 from utils.misc import save_checkpoint
 from utils.misc import LSIZE, RED_SIZE
+## WARNING : THIS SHOULD BE REPLACE WITH PYTORCH 0.5
 from utils.learning import EarlyStopping
-from torch.optim.lr_scheduler import ReduceLROnPlateau
+from utils.learning import ReduceLROnPlateau
 from data.loaders import RolloutObservationDataset
 
 
@@ -29,6 +31,8 @@ parser.add_argument('--noreload', action='store_true',
                     help='Best model is not reloaded if specified')
 parser.add_argument('--nosamples', action='store_true',
                     help='Does not save samples during training if specified')
+parser.add_argument('--dataset_dir', type=str, help='rollouts location', 
+                    default='datasets/carracing')
 
 
 args = parser.parse_args()
@@ -36,8 +40,8 @@ cuda = torch.cuda.is_available()
 
 
 # torch.manual_seed(123)
-# torch.backends.cudnn.enabled = False
-torch.backends.cudnn.benchmark = True
+# torch.backends.cudnn.enabled = False               
+torch.backends.cudnn.benchmark=True
 
 
 device = torch.device("cuda" if cuda else "cpu")
@@ -55,9 +59,9 @@ transform_test = transforms.Compose([
     transforms.ToTensor(),
 ])
 
-dataset_train = RolloutObservationDataset('datasets/carracing',
+dataset_train = RolloutObservationDataset(args.dataset_dir,
                                           transform_train, train=True)
-dataset_test = RolloutObservationDataset('datasets/carracing',
+dataset_test = RolloutObservationDataset(args.dataset_dir,
                                          transform_test, train=False)
 train_loader = torch.utils.data.DataLoader(
     dataset_train, batch_size=args.batch_size, shuffle=True, num_workers=2)
@@ -66,10 +70,10 @@ test_loader = torch.utils.data.DataLoader(
 
 
 model = VAE(3, LSIZE).to(device)
-optimizer = optim.Adam(model.parameters())  # , lr=1e-4, betas=(0.5, 0.9))
+optimizer = optim.Adam(model.parameters())#, lr=1e-4, betas=(0.5, 0.9))
 # optimizer = optim.SGD(model.parameters(), lr=1e-3)
 scheduler = ReduceLROnPlateau(optimizer, 'min', factor=0.5, patience=5)
-earlystopping = EarlyStopping('min', patience=30)
+earlystopping = EarlyStopping('min', patience=3)
 
 # Reconstruction + KL divergence losses summed over all elements and batch
 def loss_function(recon_x, x, mu, logsigma):
@@ -80,7 +84,7 @@ def loss_function(recon_x, x, mu, logsigma):
     x = x.cpu()
     mu = mu.cpu()
     logsigma = logsigma.cpu()
-    BCE = .5 * (recon_x - x).pow(2).sum(dim=(1, 2, 3)).sum()
+    BCE = .5 * (recon_x - x).pow(2).sum(dim=(1,2,3)).sum()
     # BCE = (recon_x - x).pow(2).sum(dim=1).sum()
 
     # see Appendix B from VAE paper:
@@ -107,12 +111,12 @@ def train(epoch):
         loss.backward()
         optimizer.step()
         train_loss += loss.item()
-
-        if batch_idx % 20 == 0:
-            print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
-                epoch, batch_idx * len(data), len(train_loader.dataset),
-                100. * batch_idx / len(train_loader),
-                loss.item() / len(data)))
+        
+        # if batch_idx % 200 == 0:
+        #     print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
+        #         epoch, batch_idx * len(data), len(train_loader.dataset),
+        #         100. * batch_idx / len(train_loader),
+        #         loss.item() / len(data)))
 
     print('====> Epoch: {} Average loss: {:.4f}'.format(
         epoch, train_loss / len(train_loader.dataset)))
@@ -132,7 +136,6 @@ def test():
     test_loss /= len(test_loader.dataset)
     print('====> Test set loss: {:.4f}'.format(test_loss))
     return test_loss
-
 
 # check vae dir exists, if not, create it
 vae_dir = join(args.logdir, 'vae')
@@ -158,6 +161,8 @@ cur_best = None
 for epoch in range(1, args.epochs + 1):
     train(epoch)
     test_loss = test()
+    assert np.isfinite(test_loss)
+
     scheduler.step(test_loss)
     earlystopping.step(test_loss)
 
