@@ -207,20 +207,19 @@ temporal dependencies. In our case, the untrained MDN-RNN seems to also behave l
 reservoir for temporal information, necessary to solve the task at hand.
 
 ### Using a training pipeline mixing the different steps
-One of the limitation of the methods, stated in the original paper, is that
-the VAE and RNN are trained only at the beginning, with a random policy. Hence,
-they might not be suited for the trained policies.
+As stated in the original paper, the method is limited, in the sense that the VAE and MDRNN
+are only trained on random rollouts at the very beginning. They might not model properly
+the data distribution after the policy is trained.
 
-The original paper already introduced a solution: periodically retraining the
-VAE and the MDRNN after a certain number of training iterations on the controller.
+To aleviate this issue, the original paper proposed to periodically retrain the
+VAE and the MDRNN after a certain number of controller training iterations.
 
-We tried this learning pipeline, on the Car Racing environment. After every 5 iterations of 
-the controller training, we made a new dataset of rollouts, generated with the new policy, 
-of the same size than the original one (1,000 rollouts). Then we retrained the VAE with an
-early stopping criteria, stopping the training if it did not improve after 3 epochs, with the previous VAE as initialisation. 
-Finally, we retrained the MDRNN with the same setting than the VAE (early stopping if no improvement after 3 epochs, previous model as initialisation).
+We complement the results of the original paper by applying this procedure on the Car Racing environment.
+Every fifth iteration of controller training, a dataset of 1000 rollouts is generated from the current policy, 
+and the VAE and MDRNN are retrained. Both the VAE and MDRNN parameters are initialized to their respective parameters
+at the end of the previous training cycle, and training is halted after 3 non improving epochs.
 
-Using this learning pipeline improves the performance of the learning, both in tern of final performance and number of
+Using this learning pipeline improves the performance of learning, both in tern of final performance and number of
 controller training steps. 
 
   Method                           Average score  
@@ -228,12 +227,13 @@ controller training steps.
   Standard training procedure        895 ± 79
   Pipeline                           910 ± 52
 
-Still, using this pipeline is expensive in term of computation and sample efficiency, since it requires generating new rollouts between controller training steps. The sample efficiency issue could be mitigated by reusing the rollouts generated during the
-controller training steps for the training of the VAE and the MDRNN.
+Using this pipeline is expensive in term of computation and sample efficiency, since it requires generating new rollouts
+between each retraining. The sample efficiency issue could be mitigated by training the VAE and MDRNN on rollouts generated during the
+controller training steps.
 
-  
-
-Another limitation of this pipeline is that the MDRNN and the VAE might be able to represent states coming from a good learned policy, and be inefficient in other states. This could lead to very bad performance in extreme settings. For example in the carracing environment, the agent might almost never see the car outside of the road. Actually, this is not something we observe in practice.
+Another potential limitation of this pipeline is that, after retraining, the MDRNN and VAE might only model properly trajectories coming from the current (better) policy.
+For example in the Car Racing environment, when only faced with trajectories that remain on the road, the agent might forget the out of road dynamic, which could deteriorate
+performances. While we believe this could be problematic in complex environment, such issues seem not to arise on the Car Racing environment.
 
 
 # Conclusion
