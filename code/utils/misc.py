@@ -159,7 +159,7 @@ class RolloutGenerator(object):
         _, _, _, _, _, next_hidden = self.mdrnn(action, latent_mu, hidden)
         return action.squeeze().cpu().numpy(), next_hidden
 
-    def rollout(self, params, render=False):
+    def rollout(self, params, render=False, rollout_filename=None):
         """ Execute a rollout and returns minus cumulative reward.
 
         Load :params: into the controller and execute a single rollout. This
@@ -170,6 +170,12 @@ class RolloutGenerator(object):
         :returns: minus cumulative reward
         """
         # copy params into the controller
+        self.logger.info(f"rollout_filename:{rollout_filename}")
+        if rollout_filename is not None:
+            obs_rollout = []
+            r_rollout = []
+            a_rollout = []
+            d_rollout = []
         logger = self.logger
         if params is not None:
             load_parameters(params, self.controller)
@@ -194,14 +200,64 @@ class RolloutGenerator(object):
             obs = transform(obs).unsqueeze(0).to(self.device)
             action, hidden = self.get_action_and_transition(obs, hidden)
             obs, reward, done, _ = self.env.step(action)
+            if rollout_filename is not None:
+                self.env.env.viewer.window.dispatch_events()
+                obs_rollout.append(obs)
+                r_rollout.append(reward)
+                a_rollout.append(action)
+                d_rollout.append(done)
 
             if render:
                 self.env.render()
 
             cumulative += reward
             if done or i > self.time_limit:
+
+                if rollout_filename is not None:
+                    np.savez(rollout_filename,
+                         observations=np.array(obs_rollout),
+                         rewards=np.array(r_rollout),
+                         actions=np.array(a_rollout),
+                         terminals=np.array(d_rollout))
                 return - cumulative
             i += 1
-        logger.info("End loop")
+        logger.info(f"End loop: {i}")
 
 
+def generate_data(rollouts, data_dir, noise_type): # pylint: disable=R0914
+    """ Generates data """
+    assert exists(data_dir), "The data directory does not exist..."
+
+    env = gym.make("CarRacing-v0")
+    seq_len = 1000
+
+    for i in range(rollouts):
+        env.reset()
+        env.env.viewer.window.dispatch_events()
+        if noise_type == 'white':
+            a_rollout = [env.action_space.sample() for _ in range(seq_len)]
+        elif noise_type == 'brown':
+            a_rollout = sample_continuous_policy(env.action_space, seq_len, 1. / 50)
+
+        s_rollout = []
+        r_rollout = []
+        d_rollout = []
+
+        t = 0
+        while True:
+            action = a_rollout[t]
+            t += 1
+
+            s, r, done, _ = env.step(action)
+            env.env.viewer.window.dispatch_events()
+            s_rollout += [s]
+            r_rollout += [r]
+            d_rollout += [done]
+            if done:
+                print("> End of rollout {}, {} frames...".format(i, len(s_rollout)))
+                np.savez(join(data_dir, 'rollout_{}'.format(i)),
+                         observations=np.array(s_rollout),
+                         rewards=np.array(r_rollout),
+                         actions=np.array(a_rollout),
+                         terminals=np.array(d_rollout))
+                break
