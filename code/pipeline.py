@@ -107,4 +107,4 @@ def main(logdir, total_epochs=200, period_restart=5, max_workers=32):
     print(script)
 
 if __name__ == "__main__":
-    main('/private/home/leonardb/code/world-models/exp_dir/pipeline')
+    main('exp_dir/pipeline', total_epochs=200, period_restart=5)

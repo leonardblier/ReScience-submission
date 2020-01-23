@@ -71,9 +71,20 @@ To plot the learning curves presented in the article, run the following command:
 python dataanalysis.py  --experiments-folder ../data/exp_dir --experiments-names standard untrainedrnn untrainedrnnvae --out out.png
 ```
 
+### 6. Using an entire learning pipeline
+
+If you want to design a pipeline with the steps 1-4 (generating the dataset, training the VAE, training the MDRNN, training the controller), use the file `pipeline.py`. Run
+```bash
+python pipeline.py > pipeline.sh
+bash pipeline.sh
+```
+will run the pipeline defined in pipeline.py. By default, it does 200 steps of training, and run the steps 1-2-3 after 5 steps of step 4.
+
+
 ### Notes
 When running on a headless server, you will need to use `xvfb-run` to launch the controller training script. For instance,
 ```bash
+
 xvfb-run -s "-screen 0 1400x900x24" python traincontroller.py --logdir exp_dir --n-samples 4 --pop-size 4 --target-return 950 --display
 ```
 If you do not have a display available and you launch `traincontroller` without
