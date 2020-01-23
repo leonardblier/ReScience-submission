@@ -221,8 +221,17 @@ early stopping criteria, stopping the training if it did not improve after 3 epo
 Finally, we retrained the MDRNN with the same setting than the VAE (early stopping if no improvement after 3 epochs, previous model as initialisation).
 
 Using this learning pipeline improves the performance of the learning, both in tern of final performance and number of
-controller training steps. Still, using this pipeline is expensive in term of computation and sample efficiency, since it requires generating new rollouts between controller training steps. The sample efficiency issue could be mitigated by reusing the rollouts generated during the
+controller training steps. 
+
+  Method                           Average score  
+ --------------------------------- --------------- 
+  Standard training procedure        895 ± 79
+  Pipeline                           910 ± 52
+
+Still, using this pipeline is expensive in term of computation and sample efficiency, since it requires generating new rollouts between controller training steps. The sample efficiency issue could be mitigated by reusing the rollouts generated during the
 controller training steps for the training of the VAE and the MDRNN.
+
+  
 
 Another limitation of this pipeline is that the MDRNN and the VAE might be able to represent states coming from a good learned policy, and be inefficient in other states. This could lead to very bad performance in extreme settings. For example in the carracing environment, the agent might almost never see the car outside of the road. Actually, this is not something we observe in practice.
 
@@ -254,7 +263,7 @@ some additional experiments. Overall, our conclusions are twofold:
       difficulty. Is proper handling of multi modal behaviors key to leveraging
       the usefulness of a model of the world?
 
-![Learning curves of CMAES. This qualitatively replicates Fig. 4 left from @NIPS2018_7512. The number of generations is lower here, due to computational limitations.](img/out.png){#fig:curves}
+![Learning curves of CMAES. This qualitatively replicates Fig. 4 left from @NIPS2018_7512. The number of generations is lower here, due to computational limitations.](img/newout.png){#fig:curves}
 
 # References
 
